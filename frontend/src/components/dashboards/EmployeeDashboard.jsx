@@ -1,12 +1,25 @@
 import { useState, useEffect } from 'react';
-import axiosClient from '../../api/axiosClient';
 import { StatusBadge, LoadingErrorEmpty } from '../common/OperationalUI';
+import axiosClient from '../../api/axiosClient';
+
+const CATEGORY_OPTIONS = [
+  { value: 'CONTENT_SUBSCRIPTION', label: 'Content Subscription' },
+  { value: 'CERTIFICATION_VOUCHER', label: 'Certification Voucher' },
+  { value: 'COURSE_LICENCE', label: 'Course Licence' },
+  { value: 'TRAINING_MATERIAL', label: 'Training Material' },
+  { value: 'DEVICE', label: 'Device' },
+];
 
 export default function EmployeeDashboard() {
-  const [loading, setLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [category, setCategory] = useState('CONTENT_SUBSCRIPTION');
+  const [items, setItems] = useState([]);
+  const [selectedItemId, setSelectedItemId] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  
+
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
 
@@ -15,126 +28,111 @@ export default function EmployeeDashboard() {
     try {
       const { data } = await axiosClient.get('/operations/purchase-requests/me');
       setHistory(data.data);
-    } catch (err) {
-      console.error('Failed to load history', err);
-    } finally {
-      setHistoryLoading(false);
-    }
+    } catch (err) { console.error(err); }
+    finally { setHistoryLoading(false); }
   };
 
-  useEffect(() => {
-    loadHistory();
-  }, []);
-
-  const handleRequest = async (category, title) => {
-    setLoading(true);
-    setErrorMsg('');
-    setSuccessMsg('');
+  const loadItems = async (cat) => {
     try {
-      // 1. Fetch one item of the specified category
-      const { data: itemsResponse } = await axiosClient.get(`/items?category=${category}&pageSize=1`);
-      const item = itemsResponse.data[0];
-      
-      if (!item) {
-        throw new Error(`No items found in the inventory for category: ${category}.`);
-      }
+      const { data } = await axiosClient.get(`/items?category=${cat}&pageSize=50`);
+      setItems(data.data);
+      if (data.data.length > 0) setSelectedItemId(data.data[0].id);
+      else setSelectedItemId('');
+    } catch { setItems([]); }
+  };
 
-      // 2. Submit the Purchase Request for 1 unit
-      await axiosClient.post('/operations/purchase-requests', {
-        itemId: item.id,
-        quantity: 1
-      });
-      
-      setSuccessMsg(`Successfully requested 1x ${item.name}!`);
-      loadHistory(); // Reload history directly from database
+  useEffect(() => { loadHistory(); }, []);
+  useEffect(() => { if (showForm) loadItems(category); }, [category, showForm]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedItemId) { setErrorMsg('Please select an item.'); return; }
+    setSubmitting(true); setErrorMsg('');
+    try {
+      await axiosClient.post('/operations/purchase-requests', { itemId: selectedItemId, quantity: Number(quantity) });
+      const itemName = items.find(i => i.id === selectedItemId)?.name || 'item';
+      setSuccessMsg(`Successfully requested ${quantity}× ${itemName}!`);
+      setShowForm(false); setQuantity(1); loadHistory();
       setTimeout(() => setSuccessMsg(''), 5000);
     } catch (err) {
-      setErrorMsg(err.response?.data?.error?.message || err.message || `Failed to submit request for ${title}.`);
-    } finally {
-      setLoading(false);
-    }
+      setErrorMsg(err.response?.data?.error?.message || err.message || 'Request failed.');
+    } finally { setSubmitting(false); }
   };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="text-center py-10">
-        <h2 className="text-3xl font-display text-ink mb-3">Self-Service Training Portal</h2>
-        <p className="text-muted text-lg">Request courses, certifications, and resources to advance your career.</p>
-        
-        {/* Feedback Messages */}
-        <div className="min-h-[24px] mt-4">
-          {errorMsg && <p className="text-sm text-status-critical font-medium">{errorMsg}</p>}
-          {successMsg && <p className="text-sm text-status-ok font-medium">✅ {successMsg}</p>}
-          {loading && <p className="text-sm text-muted">Processing request...</p>}
+      <div className="flex justify-between items-start pt-6">
+        <div>
+          <h2 className="text-3xl font-display text-ink mb-1">Self-Service Training Portal</h2>
+          <p className="text-muted text-sm">Request courses, certifications, and resources to advance your career.</p>
         </div>
+        <button onClick={() => setShowForm(!showForm)} className="bg-primary text-surface px-4 py-2 rounded-lg font-medium hover:bg-primary/90 transition-colors flex items-center space-x-2">
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+          <span>New Request</span>
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div 
-          onClick={() => !loading && handleRequest('CONTENT_SUBSCRIPTION', 'Course Licence')}
-          className={`bg-surface border border-border p-6 rounded-xl transition-all cursor-pointer group ${loading ? 'opacity-50' : 'hover:shadow-md hover:border-primary/50'}`}
-        >
-          <div className="flex items-start space-x-4">
-            <div className="bg-primary/10 text-primary p-3 rounded-lg group-hover:bg-primary group-hover:text-surface transition-colors">
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-lg font-medium text-ink">Course Licences & Subscriptions</h3>
-              <p className="text-sm text-muted mt-1">Request access to platforms like Pluralsight, Udemy, or internal courses.</p>
-            </div>
-          </div>
-        </div>
+      {successMsg && <div className="bg-status-ok/10 border border-status-ok/30 text-status-ok p-4 rounded-xl text-sm font-medium flex items-center space-x-2"><svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>{successMsg}</span></div>}
+      {errorMsg && <div className="bg-status-critical/10 border border-status-critical/30 text-status-critical p-4 rounded-xl text-sm font-medium">{errorMsg}</div>}
 
-        <div 
-          onClick={() => !loading && handleRequest('CERTIFICATION_VOUCHER', 'Certification Voucher')}
-          className={`bg-surface border border-border p-6 rounded-xl transition-all cursor-pointer group ${loading ? 'opacity-50' : 'hover:shadow-md hover:border-primary/50'}`}
-        >
-          <div className="flex items-start space-x-4">
-            <div className="bg-primary/10 text-primary p-3 rounded-lg group-hover:bg-primary group-hover:text-surface transition-colors">
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-lg font-medium text-ink">Certification Vouchers</h3>
-              <p className="text-sm text-muted mt-1">Request exam vouchers for AWS, PMP, Kubernetes, and more.</p>
-            </div>
+      {showForm && (
+        <div className="bg-surface border border-primary/30 rounded-xl p-6 shadow-md space-y-5">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-ink">Request Training Resource</h3>
+            <button onClick={() => setShowForm(false)} className="text-muted hover:text-ink transition-colors"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-ink mb-1.5">Category</label>
+                <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-canvas text-ink focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none">
+                  {CATEGORY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-ink mb-1.5">Item</label>
+                <select value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-canvas text-ink focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none">
+                  {items.length === 0 && <option value="">No items available</option>}
+                  {items.map(item => <option key={item.id} value={item.id}>{item.name} ({item.sku})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-ink mb-1.5">Quantity</label>
+                <input type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-canvas text-ink focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none" />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 pt-2">
+              <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm font-medium rounded-lg bg-canvas border border-border text-ink hover:bg-border transition-colors">Cancel</button>
+              <button type="submit" disabled={submitting || !selectedItemId} className="px-5 py-2 text-sm font-medium rounded-lg bg-primary text-surface hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{submitting ? 'Submitting...' : 'Submit Request'}</button>
+            </div>
+          </form>
         </div>
-      </div>
-      
-      <div className="mt-8 pt-6 border-t border-border">
+      )}
+
+      {/* Request History */}
+      <div className="pt-4">
         <h3 className="text-lg font-medium mb-4">My Request History</h3>
-        
         <LoadingErrorEmpty loading={historyLoading} error="" empty={!historyLoading && history.length === 0}>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {history.map((req) => {
               const approval = req.approvals?.[0];
               const itemName = req.lines?.[0]?.item?.name || 'Unknown Item';
-              const quantity = req.lines?.[0]?.quantity || 0;
-              
+              const qty = req.lines?.[0]?.quantity || 0;
               return (
                 <div key={req.id} className="bg-surface border border-border p-4 rounded-xl flex items-center justify-between shadow-sm">
                   <div>
-                    <h4 className="font-medium text-ink">{quantity} × {itemName}</h4>
+                    <h4 className="font-medium text-ink">{qty} × {itemName}</h4>
                     <p className="text-xs text-muted mt-1">{new Date(req.createdAt).toLocaleString()}</p>
                   </div>
-                  
                   <div className="flex flex-col items-end space-y-2">
                     <StatusBadge value={req.status} />
-                    
                     {req.status === 'PENDING_REVIEW' ? (
                       <span className="text-xs text-muted">Waiting for approval from Procurement / Admin</span>
-                    ) : (
-                      approval?.actor && (
-                        <span className="text-xs text-muted">
-                          {req.status === 'APPROVED' ? 'Approved by' : 'Reviewed by'}{' '}
-                          <span className="font-medium text-ink">{approval.actor.name}</span> 
-                          ({approval.actor.role?.name})
-                        </span>
-                      )
+                    ) : approval?.actor && (
+                      <span className="text-xs text-muted">
+                        {req.status === 'APPROVED' ? 'Approved by' : 'Reviewed by'}{' '}
+                        <span className="font-medium text-ink">{approval.actor.name}</span> ({approval.actor.role?.name})
+                      </span>
                     )}
                   </div>
                 </div>

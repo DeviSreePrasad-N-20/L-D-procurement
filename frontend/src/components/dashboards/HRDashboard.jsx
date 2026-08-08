@@ -2,11 +2,26 @@ import { useState, useEffect } from 'react';
 import { Card, StatusBadge, LoadingErrorEmpty } from '../common/OperationalUI';
 import axiosClient from '../../api/axiosClient';
 
+const CATEGORY_OPTIONS = [
+  { value: 'COURSE_LICENCE', label: 'Course Licence' },
+  { value: 'CONTENT_SUBSCRIPTION', label: 'Content Subscription' },
+  { value: 'CERTIFICATION_VOUCHER', label: 'Certification Voucher' },
+  { value: 'TRAINING_MATERIAL', label: 'Training Material' },
+  { value: 'DEVICE', label: 'Device' },
+];
+
 export default function HRDashboard() {
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
-  
+  // Request form state
+  const [showForm, setShowForm] = useState(false);
+  const [category, setCategory] = useState('CONTENT_SUBSCRIPTION');
+  const [items, setItems] = useState([]);
+  const [selectedItemId, setSelectedItemId] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  // History state
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
 
@@ -22,89 +37,166 @@ export default function HRDashboard() {
     }
   };
 
-  useEffect(() => {
-    loadHistory();
-  }, []);
-
-  const handleGenerateRequest = async () => {
-    setLoading(true);
-    setError('');
+  // Load items when category changes
+  const loadItems = async (cat) => {
     try {
-      // 1. Fetch available items to find a Pluralsight Subscription or AWS Voucher
-      const { data: itemsResponse } = await axiosClient.get('/items?category=CONTENT_SUBSCRIPTION&pageSize=1');
-      const item = itemsResponse.data[0];
-      
-      if (!item) {
-        throw new Error('No subscription items found in inventory to request.');
-      }
-
-      // 2. Generate the Purchase Request for the 85 new hires
-      await axiosClient.post('/operations/purchase-requests', {
-        itemId: item.id,
-        quantity: 85
-      });
-      
-      setSuccess(true);
-      loadHistory(); // Reload history after submission
-      setTimeout(() => setSuccess(false), 5000);
-    } catch (err) {
-      setError(err.response?.data?.error?.message || err.message || 'Failed to submit request.');
-    } finally {
-      setLoading(false);
+      const { data } = await axiosClient.get(`/items?category=${cat}&pageSize=50`);
+      setItems(data.data);
+      if (data.data.length > 0) setSelectedItemId(data.data[0].id);
+      else setSelectedItemId('');
+    } catch {
+      setItems([]);
     }
   };
 
+  useEffect(() => { loadHistory(); }, []);
+  useEffect(() => { if (showForm) loadItems(category); }, [category, showForm]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedItemId) { setErrorMsg('Please select an item.'); return; }
+    setSubmitting(true);
+    setErrorMsg('');
+    try {
+      await axiosClient.post('/operations/purchase-requests', {
+        itemId: selectedItemId,
+        quantity: Number(quantity),
+      });
+      const itemName = items.find(i => i.id === selectedItemId)?.name || 'item';
+      setSuccessMsg(`Successfully requested ${quantity}× ${itemName}!`);
+      setShowForm(false);
+      setQuantity(1);
+      loadHistory();
+      setTimeout(() => setSuccessMsg(''), 5000);
+    } catch (err) {
+      setErrorMsg(err.response?.data?.error?.message || err.message || 'Failed to submit request.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const pendingCount = history.filter(r => r.status === 'PENDING_REVIEW').length;
+  const approvedCount = history.filter(r => r.status === 'APPROVED').length;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold tracking-tight text-ink">Workforce Planning & L&D</h2>
-        <p className="text-sm text-muted">Monitor headcount trends and trigger proactive course licence procurement for incoming cohorts.</p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card label="Total Headcount" value="1,240" />
-        <Card label="Q4 Incoming Hires" value="85" />
-        <Card label="Certifications Expiring (30d)" value="12" />
-        <Card label="Avg Training Spend / Emp" value="$450" />
-      </div>
-
-      <div className="bg-surface border border-border p-6 rounded-xl text-center space-y-4">
-        <div className="mx-auto w-12 h-12 bg-canvas rounded-full flex items-center justify-center border border-border text-primary">
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-          </svg>
+      <div className="flex justify-between items-start">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight text-ink">Workforce Planning & L&D</h2>
+          <p className="text-sm text-muted">Monitor headcount trends and manage course licence procurement for your organization.</p>
         </div>
-        <h3 className="text-lg font-medium">New Hire Cohort Detected</h3>
-        <p className="text-muted max-w-md mx-auto">
-          HR systems indicate 85 new software engineers are joining in Q4. Would you like to automatically request 85 Pluralsight Subscriptions and AWS Certification Vouchers?
-        </p>
-        
-        {error && <p className="text-sm text-status-critical">{error}</p>}
-        {success && <p className="text-sm text-status-ok font-medium">✅ Purchase Request submitted successfully and sent to Procurement for approval.</p>}
-        
-        <button 
-          onClick={handleGenerateRequest}
-          disabled={loading || success}
-          className={`px-4 py-2 rounded font-medium transition-colors ${loading || success ? 'bg-canvas text-muted cursor-not-allowed border border-border' : 'bg-primary text-surface hover:bg-primary/90'}`}
+        <button
+          onClick={() => setShowForm(!showForm)}
+          className="bg-primary text-surface px-4 py-2 rounded-lg font-medium hover:bg-primary/90 transition-colors flex items-center space-x-2"
         >
-          {loading ? 'Submitting Request...' : success ? 'Request Submitted' : 'Generate Purchase Request'}
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          <span>New Request</span>
         </button>
       </div>
 
-      <div className="mt-8 pt-6 border-t border-border">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card label="Total Requests" value={history.length} />
+        <Card label="Pending Approval" value={pendingCount} />
+        <Card label="Approved" value={approvedCount} />
+        <Card label="Rejected / Deferred" value={history.filter(r => r.status === 'REJECTED' || r.status === 'DEFERRED').length} />
+      </div>
+
+      {/* Feedback Messages */}
+      {successMsg && (
+        <div className="bg-status-ok/10 border border-status-ok/30 text-status-ok p-4 rounded-xl text-sm font-medium flex items-center space-x-2">
+          <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+          <span>{successMsg}</span>
+        </div>
+      )}
+      {errorMsg && (
+        <div className="bg-status-critical/10 border border-status-critical/30 text-status-critical p-4 rounded-xl text-sm font-medium">
+          {errorMsg}
+        </div>
+      )}
+
+      {/* New Request Form */}
+      {showForm && (
+        <div className="bg-surface border border-primary/30 rounded-xl p-6 shadow-md space-y-5">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-ink">Create New Purchase Request</h3>
+            <button onClick={() => setShowForm(false)} className="text-muted hover:text-ink transition-colors">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Category */}
+              <div>
+                <label className="block text-sm font-medium text-ink mb-1.5">Category</label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-canvas text-ink focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none"
+                >
+                  {CATEGORY_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Item */}
+              <div>
+                <label className="block text-sm font-medium text-ink mb-1.5">Item</label>
+                <select
+                  value={selectedItemId}
+                  onChange={(e) => setSelectedItemId(e.target.value)}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-canvas text-ink focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none"
+                >
+                  {items.length === 0 && <option value="">No items available</option>}
+                  {items.map(item => (
+                    <option key={item.id} value={item.id}>{item.name} ({item.sku})</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Quantity */}
+              <div>
+                <label className="block text-sm font-medium text-ink mb-1.5">Quantity</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-canvas text-ink focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-2">
+              <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm font-medium rounded-lg bg-canvas border border-border text-ink hover:bg-border transition-colors">
+                Cancel
+              </button>
+              <button type="submit" disabled={submitting || !selectedItemId} className="px-5 py-2 text-sm font-medium rounded-lg bg-primary text-surface hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {submitting ? 'Submitting...' : 'Submit Request'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Request History */}
+      <div className="pt-4">
         <h3 className="text-lg font-medium mb-4">My Request History</h3>
         
         <LoadingErrorEmpty loading={historyLoading} error="" empty={!historyLoading && history.length === 0}>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {history.map((req) => {
               const approval = req.approvals?.[0];
               const itemName = req.lines?.[0]?.item?.name || 'Unknown Item';
-              const quantity = req.lines?.[0]?.quantity || 0;
+              const qty = req.lines?.[0]?.quantity || 0;
               
               return (
                 <div key={req.id} className="bg-surface border border-border p-4 rounded-xl flex items-center justify-between shadow-sm">
                   <div>
-                    <h4 className="font-medium text-ink">{quantity} × {itemName}</h4>
+                    <h4 className="font-medium text-ink">{qty} × {itemName}</h4>
                     <p className="text-xs text-muted mt-1">{new Date(req.createdAt).toLocaleString()}</p>
                   </div>
                   
@@ -117,7 +209,7 @@ export default function HRDashboard() {
                       approval?.actor && (
                         <span className="text-xs text-muted">
                           {req.status === 'APPROVED' ? 'Approved by' : 'Reviewed by'}{' '}
-                          <span className="font-medium text-ink">{approval.actor.name}</span> 
+                          <span className="font-medium text-ink">{approval.actor.name}</span>{' '}
                           ({approval.actor.role?.name})
                         </span>
                       )
