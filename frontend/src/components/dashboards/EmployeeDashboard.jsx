@@ -1,13 +1,68 @@
+import { useState } from 'react';
+import axiosClient from '../../api/axiosClient';
+
 export default function EmployeeDashboard() {
+  const [loading, setLoading] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [history, setHistory] = useState([]); // In a real app we'd fetch this from the backend
+
+  const handleRequest = async (category, title) => {
+    setLoading(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      // 1. Fetch one item of the specified category
+      const { data: itemsResponse } = await axiosClient.get(`/items?category=${category}&pageSize=1`);
+      const item = itemsResponse.data[0];
+      
+      if (!item) {
+        throw new Error(`No items found in the inventory for category: ${category}.`);
+      }
+
+      // 2. Submit the Purchase Request for 1 unit
+      await axiosClient.post('/operations/purchase-requests', {
+        itemId: item.id,
+        quantity: 1
+      });
+      
+      setSuccessMsg(`Successfully requested 1x ${item.name}!`);
+      
+      // Optimistically add to history
+      setHistory(prev => [{
+        id: Date.now(),
+        item: item.name,
+        date: new Date().toLocaleDateString(),
+        status: 'PENDING_REVIEW'
+      }, ...prev]);
+      
+      setTimeout(() => setSuccessMsg(''), 5000);
+    } catch (err) {
+      setErrorMsg(err.response?.data?.error?.message || err.message || `Failed to submit request for ${title}.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <div className="text-center py-10">
         <h2 className="text-3xl font-display text-ink mb-3">Self-Service Training Portal</h2>
         <p className="text-muted text-lg">Request courses, certifications, and resources to advance your career.</p>
+        
+        {/* Feedback Messages */}
+        <div className="min-h-[24px] mt-4">
+          {errorMsg && <p className="text-sm text-status-critical font-medium">{errorMsg}</p>}
+          {successMsg && <p className="text-sm text-status-ok font-medium">✅ {successMsg}</p>}
+          {loading && <p className="text-sm text-muted">Processing request...</p>}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-surface border border-border p-6 rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
+        <div 
+          onClick={() => !loading && handleRequest('CONTENT_SUBSCRIPTION', 'Course Licence')}
+          className={`bg-surface border border-border p-6 rounded-xl transition-all cursor-pointer group ${loading ? 'opacity-50' : 'hover:shadow-md hover:border-primary/50'}`}
+        >
           <div className="flex items-start space-x-4">
             <div className="bg-primary/10 text-primary p-3 rounded-lg group-hover:bg-primary group-hover:text-surface transition-colors">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -21,7 +76,10 @@ export default function EmployeeDashboard() {
           </div>
         </div>
 
-        <div className="bg-surface border border-border p-6 rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
+        <div 
+          onClick={() => !loading && handleRequest('CERTIFICATION_VOUCHER', 'Certification Voucher')}
+          className={`bg-surface border border-border p-6 rounded-xl transition-all cursor-pointer group ${loading ? 'opacity-50' : 'hover:shadow-md hover:border-primary/50'}`}
+        >
           <div className="flex items-start space-x-4">
             <div className="bg-primary/10 text-primary p-3 rounded-lg group-hover:bg-primary group-hover:text-surface transition-colors">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -38,7 +96,24 @@ export default function EmployeeDashboard() {
       
       <div className="mt-8 pt-8 border-t border-border">
         <h3 className="text-lg font-medium mb-4">My Request History</h3>
-        <p className="text-muted text-sm text-center py-8">You have no active requests.</p>
+        
+        {history.length === 0 ? (
+          <p className="text-muted text-sm text-center py-8">You have no active requests.</p>
+        ) : (
+          <div className="space-y-3">
+            {history.map(req => (
+              <div key={req.id} className="flex justify-between items-center bg-surface border border-border p-4 rounded-lg">
+                <div>
+                  <p className="font-medium">{req.item}</p>
+                  <p className="text-xs text-muted">{req.date}</p>
+                </div>
+                <div className="px-3 py-1 bg-canvas border border-border rounded text-xs font-medium text-muted">
+                  {req.status}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -14,7 +14,7 @@ router.get('/replenishment', asyncHandler(replenishment));
 router.get('/suppliers/scorecards', asyncHandler(supplierScorecards));
 router.get('/approvals', requireRole(...plannerRoles), asyncHandler(listApprovals));
 router.patch('/approvals/:id', requireRole(...plannerRoles), validate(updateApprovalSchema), asyncHandler(updateApproval));
-router.post('/purchase-requests', requireRole(...plannerRoles), validate(createPurchaseRequestSchema), asyncHandler(createPurchaseRequest));
+router.post('/purchase-requests', validate(createPurchaseRequestSchema), asyncHandler(createPurchaseRequest));
 router.get('/outcomes', asyncHandler(outcomes));
 router.get('/reports/inventory.csv', asyncHandler(exportInventoryCsv));
 

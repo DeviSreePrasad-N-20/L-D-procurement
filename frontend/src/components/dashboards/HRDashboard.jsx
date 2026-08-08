@@ -1,6 +1,39 @@
+import { useState } from 'react';
 import { Card } from '../common/OperationalUI';
+import axiosClient from '../../api/axiosClient';
 
 export default function HRDashboard() {
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleGenerateRequest = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // 1. Fetch available items to find a Pluralsight Subscription or AWS Voucher
+      const { data: itemsResponse } = await axiosClient.get('/items?category=CONTENT_SUBSCRIPTION&pageSize=1');
+      const item = itemsResponse.data[0];
+      
+      if (!item) {
+        throw new Error('No subscription items found in inventory to request.');
+      }
+
+      // 2. Generate the Purchase Request for the 85 new hires
+      await axiosClient.post('/operations/purchase-requests', {
+        itemId: item.id,
+        quantity: 85
+      });
+      
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+    } catch (err) {
+      setError(err.response?.data?.error?.message || err.message || 'Failed to submit request.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -25,8 +58,16 @@ export default function HRDashboard() {
         <p className="text-muted max-w-md mx-auto">
           HR systems indicate 85 new software engineers are joining in Q4. Would you like to automatically request 85 Pluralsight Subscriptions and AWS Certification Vouchers?
         </p>
-        <button className="bg-primary text-surface px-4 py-2 rounded font-medium hover:bg-primary/90 transition-colors">
-          Generate Purchase Request
+        
+        {error && <p className="text-sm text-status-critical">{error}</p>}
+        {success && <p className="text-sm text-status-ok font-medium">✅ Purchase Request submitted successfully and sent to Procurement for approval.</p>}
+        
+        <button 
+          onClick={handleGenerateRequest}
+          disabled={loading || success}
+          className={`px-4 py-2 rounded font-medium transition-colors ${loading || success ? 'bg-canvas text-muted cursor-not-allowed border border-border' : 'bg-primary text-surface hover:bg-primary/90'}`}
+        >
+          {loading ? 'Submitting Request...' : success ? 'Request Submitted' : 'Generate Purchase Request'}
         </button>
       </div>
     </div>
