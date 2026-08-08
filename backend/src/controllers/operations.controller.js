@@ -74,7 +74,13 @@ export async function listApprovals(req, res) {
     where: { purchaseRequest: { organizationId: req.user.organizationId } },
     include: {
       actor: { select: { name: true, email: true } },
-      purchaseRequest: { include: { lines: { include: { item: { select: { name: true, sku: true } } } }, purchaseOrder: true } },
+      purchaseRequest: { 
+        include: { 
+          lines: { include: { item: { select: { name: true, sku: true } } } }, 
+          purchaseOrder: true,
+          requestedBy: { select: { name: true, email: true, role: { select: { name: true } } } }
+        } 
+      },
       aiRun: { include: { modelVersion: true } },
     },
     orderBy: { createdAt: 'desc' },
