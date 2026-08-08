@@ -155,16 +155,19 @@ export async function exportInventoryCsv(req, res) {
   res.send(csv);
 }
 
- e x p o r t   a s y n c   f u n c t i o n   l i s t M y R e q u e s t s ( r e q ,   r e s )   { 
-     c o n s t   r e q u e s t s   =   a w a i t   p r i s m a . p u r c h a s e R e q u e s t . f i n d M a n y ( { 
-         w h e r e :   {   r e q u e s t e d B y I d :   r e q . u s e r . i d ,   o r g a n i z a t i o n I d :   r e q . u s e r . o r g a n i z a t i o n I d   } , 
-         i n c l u d e :   { 
-             l i n e s :   {   i n c l u d e :   {   i t e m :   {   s e l e c t :   {   n a m e :   t r u e ,   s k u :   t r u e   }   }   }   } , 
-             a p p r o v a l s :   {   i n c l u d e :   {   a c t o r :   {   s e l e c t :   {   n a m e :   t r u e ,   r o l e :   {   s e l e c t :   {   n a m e :   t r u e   }   }   }   }   }   } 
-         } , 
-         o r d e r B y :   {   c r e a t e d A t :   ' d e s c '   } 
-     } ) ; 
-     r e s . j s o n ( {   d a t a :   r e q u e s t s   } ) ; 
- } 
-  
- 
+export async function listMyRequests(req, res) {
+  const requests = await prisma.purchaseRequest.findMany({
+    where: { requestedById: req.user.id, organizationId: req.user.organizationId },
+    include: {
+      lines: { include: { item: { select: { name: true, sku: true } } } },
+      approvals: {
+        include: {
+          actor: { select: { name: true, role: { select: { name: true } } } }
+        },
+        orderBy: { createdAt: 'desc' }
+      }
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+  res.json({ data: requests });
+}
