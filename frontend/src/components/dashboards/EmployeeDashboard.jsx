@@ -1,11 +1,30 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axiosClient from '../../api/axiosClient';
+import { StatusBadge, LoadingErrorEmpty } from '../common/OperationalUI';
 
 export default function EmployeeDashboard() {
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  const [history, setHistory] = useState([]); // In a real app we'd fetch this from the backend
+  
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const { data } = await axiosClient.get('/operations/purchase-requests/me');
+      setHistory(data.data);
+    } catch (err) {
+      console.error('Failed to load history', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
 
   const handleRequest = async (category, title) => {
     setLoading(true);
@@ -27,15 +46,7 @@ export default function EmployeeDashboard() {
       });
       
       setSuccessMsg(`Successfully requested 1x ${item.name}!`);
-      
-      // Optimistically add to history
-      setHistory(prev => [{
-        id: Date.now(),
-        item: item.name,
-        date: new Date().toLocaleDateString(),
-        status: 'PENDING_REVIEW'
-      }, ...prev]);
-      
+      loadHistory(); // Reload history directly from database
       setTimeout(() => setSuccessMsg(''), 5000);
     } catch (err) {
       setErrorMsg(err.response?.data?.error?.message || err.message || `Failed to submit request for ${title}.`);
@@ -94,26 +105,43 @@ export default function EmployeeDashboard() {
         </div>
       </div>
       
-      <div className="mt-8 pt-8 border-t border-border">
+      <div className="mt-8 pt-6 border-t border-border">
         <h3 className="text-lg font-medium mb-4">My Request History</h3>
         
-        {history.length === 0 ? (
-          <p className="text-muted text-sm text-center py-8">You have no active requests.</p>
-        ) : (
-          <div className="space-y-3">
-            {history.map(req => (
-              <div key={req.id} className="flex justify-between items-center bg-surface border border-border p-4 rounded-lg">
-                <div>
-                  <p className="font-medium">{req.item}</p>
-                  <p className="text-xs text-muted">{req.date}</p>
+        <LoadingErrorEmpty loading={historyLoading} error="" empty={!historyLoading && history.length === 0}>
+          <div className="space-y-4">
+            {history.map((req) => {
+              const approval = req.approvals?.[0];
+              const itemName = req.lines?.[0]?.item?.name || 'Unknown Item';
+              const quantity = req.lines?.[0]?.quantity || 0;
+              
+              return (
+                <div key={req.id} className="bg-surface border border-border p-4 rounded-xl flex items-center justify-between shadow-sm">
+                  <div>
+                    <h4 className="font-medium text-ink">{quantity} × {itemName}</h4>
+                    <p className="text-xs text-muted mt-1">{new Date(req.createdAt).toLocaleString()}</p>
+                  </div>
+                  
+                  <div className="flex flex-col items-end space-y-2">
+                    <StatusBadge value={req.status} />
+                    
+                    {req.status === 'PENDING_REVIEW' ? (
+                      <span className="text-xs text-muted">Waiting for approval from Procurement / Admin</span>
+                    ) : (
+                      approval?.actor && (
+                        <span className="text-xs text-muted">
+                          {req.status === 'APPROVED' ? 'Approved by' : 'Reviewed by'}{' '}
+                          <span className="font-medium text-ink">{approval.actor.name}</span> 
+                          ({approval.actor.role?.name})
+                        </span>
+                      )
+                    )}
+                  </div>
                 </div>
-                <div className="px-3 py-1 bg-canvas border border-border rounded text-xs font-medium text-muted">
-                  {req.status}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        )}
+        </LoadingErrorEmpty>
       </div>
     </div>
   );

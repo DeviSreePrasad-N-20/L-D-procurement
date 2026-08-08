@@ -1,11 +1,30 @@
-import { useState } from 'react';
-import { Card } from '../common/OperationalUI';
+import { useState, useEffect } from 'react';
+import { Card, StatusBadge, LoadingErrorEmpty } from '../common/OperationalUI';
 import axiosClient from '../../api/axiosClient';
 
 export default function HRDashboard() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const { data } = await axiosClient.get('/operations/purchase-requests/me');
+      setHistory(data.data);
+    } catch (err) {
+      console.error('Failed to load history', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
 
   const handleGenerateRequest = async () => {
     setLoading(true);
@@ -26,6 +45,7 @@ export default function HRDashboard() {
       });
       
       setSuccess(true);
+      loadHistory(); // Reload history after submission
       setTimeout(() => setSuccess(false), 5000);
     } catch (err) {
       setError(err.response?.data?.error?.message || err.message || 'Failed to submit request.');
@@ -69,6 +89,45 @@ export default function HRDashboard() {
         >
           {loading ? 'Submitting Request...' : success ? 'Request Submitted' : 'Generate Purchase Request'}
         </button>
+      </div>
+
+      <div className="mt-8 pt-6 border-t border-border">
+        <h3 className="text-lg font-medium mb-4">My Request History</h3>
+        
+        <LoadingErrorEmpty loading={historyLoading} error="" empty={!historyLoading && history.length === 0}>
+          <div className="space-y-4">
+            {history.map((req) => {
+              const approval = req.approvals?.[0];
+              const itemName = req.lines?.[0]?.item?.name || 'Unknown Item';
+              const quantity = req.lines?.[0]?.quantity || 0;
+              
+              return (
+                <div key={req.id} className="bg-surface border border-border p-4 rounded-xl flex items-center justify-between shadow-sm">
+                  <div>
+                    <h4 className="font-medium text-ink">{quantity} × {itemName}</h4>
+                    <p className="text-xs text-muted mt-1">{new Date(req.createdAt).toLocaleString()}</p>
+                  </div>
+                  
+                  <div className="flex flex-col items-end space-y-2">
+                    <StatusBadge value={req.status} />
+                    
+                    {req.status === 'PENDING_REVIEW' ? (
+                      <span className="text-xs text-muted">Waiting for approval from Procurement / Admin</span>
+                    ) : (
+                      approval?.actor && (
+                        <span className="text-xs text-muted">
+                          {req.status === 'APPROVED' ? 'Approved by' : 'Reviewed by'}{' '}
+                          <span className="font-medium text-ink">{approval.actor.name}</span> 
+                          ({approval.actor.role?.name})
+                        </span>
+                      )
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </LoadingErrorEmpty>
       </div>
     </div>
   );

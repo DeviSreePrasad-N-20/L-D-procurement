@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { requireRole } from '../middleware/rbac.js';
 import { validate } from '../middleware/validate.js';
-import { dashboard, replenishment, supplierScorecards, listApprovals, updateApproval, updateApprovalSchema, createPurchaseRequest, createPurchaseRequestSchema, outcomes, exportInventoryCsv } from '../controllers/operations.controller.js';
+import { dashboard, replenishment, supplierScorecards, listApprovals, updateApproval, updateApprovalSchema, createPurchaseRequest, createPurchaseRequestSchema, outcomes, exportInventoryCsv, listMyRequests } from '../controllers/operations.controller.js';
 
 const router = Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -14,6 +14,7 @@ router.get('/replenishment', asyncHandler(replenishment));
 router.get('/suppliers/scorecards', asyncHandler(supplierScorecards));
 router.get('/approvals', requireRole(...plannerRoles), asyncHandler(listApprovals));
 router.patch('/approvals/:id', requireRole(...plannerRoles), validate(updateApprovalSchema), asyncHandler(updateApproval));
+router.get('/purchase-requests/me', asyncHandler(listMyRequests));
 router.post('/purchase-requests', validate(createPurchaseRequestSchema), asyncHandler(createPurchaseRequest));
 router.get('/outcomes', asyncHandler(outcomes));
 router.get('/reports/inventory.csv', asyncHandler(exportInventoryCsv));
