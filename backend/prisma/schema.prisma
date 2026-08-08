@@ -1,0 +1,665 @@
+// Corporate Learning Demand, Inventory & Procurement Optimiser
+// Prisma schema — PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ORGANIZATION, AUTH & RBAC
+// ============================================================
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  items            Item[]
+  locations        Location[]
+  suppliers        Supplier[]
+  courses          Course[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  configurations   Configuration[]
+  purchaseRequests PurchaseRequest[]
+}
+
+enum RoleName {
+  ADMIN
+  PROCUREMENT_MANAGER
+  INVENTORY_PLANNER
+  WAREHOUSE_USER
+  SUPPLIER
+  FINANCE_REVIEWER
+  EMPLOYEE
+  MANAGER
+  INSTRUCTOR
+  LEARNING_ADMIN
+  HR_PARTNER
+  BUSINESS_LEADER
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  name        RoleName         @unique
+  description String?
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id    String           @id @default(uuid())
+  code  String           @unique // e.g. "items:read", "purchase_orders:approve"
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model User {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  email          String       @unique
+  passwordHash   String
+  name           String
+  roleId         String
+  role           Role         @relation(fields: [roleId], references: [id])
+  status         UserStatus   @default(ACTIVE)
+  lastLoginAt    DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  version        Int          @default(1) // optimistic concurrency
+
+  // learning domain
+  enrolments      Enrolment[]
+  assessments     Assessment[]
+  certifications  Certification[]
+  skills          EmployeeSkill[]
+
+  // ops domain
+  approvals       Approval[]       @relation("ApprovalActor")
+  purchaseReqs    PurchaseRequest[] @relation("RequestedBy")
+  notifications   Notification[]
+  comments        Comment[]
+  attachments     Attachment[]
+  auditLogs       AuditLog[]
+  refreshTokens   RefreshToken[]
+
+  @@index([organizationId])
+  @@index([roleId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ============================================================
+// LEARNING DOMAIN
+// ============================================================
+
+model Skill {
+  id          String          @id @default(uuid())
+  name        String          @unique
+  category    String?
+  employees   EmployeeSkill[]
+  courses     CourseSkill[]
+}
+
+model EmployeeSkill {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  skillId      String
+  skill        Skill    @relation(fields: [skillId], references: [id])
+  level        Int      @default(0) // 0-100 coverage score
+  assessedAt   DateTime @default(now())
+
+  @@unique([userId, skillId])
+}
+
+model Course {
+  id             String        @id @default(uuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  title          String
+  description    String?
+  deliveryMode   String? // self-paced, instructor-led, blended
+  durationHours  Float?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  skills      CourseSkill[]
+  enrolments  Enrolment[]
+  itemLink    Item?           @relation("CourseItem")
+}
+
+model CourseSkill {
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  skillId  String
+  skill    Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([courseId, skillId])
+}
+
+enum EnrolmentStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
+}
+
+model Enrolment {
+  id         String          @id @default(uuid())
+  userId     String
+  user       User            @relation(fields: [userId], references: [id])
+  courseId   String
+  course     Course          @relation(fields: [courseId], references: [id])
+  status     EnrolmentStatus @default(ASSIGNED)
+  progress   Float           @default(0) // percent
+  startedAt  DateTime?
+  completedAt DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([courseId])
+}
+
+model Assessment {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  title       String
+  score       Float?
+  passed      Boolean?
+  takenAt     DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Certification {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  name         String
+  issuedAt     DateTime  @default(now())
+  expiresAt    DateTime?
+  voucherItemId String?
+  voucherItem  Item?     @relation(fields: [voucherItemId], references: [id])
+
+  @@index([userId])
+}
+
+// ============================================================
+// INVENTORY / ITEM DOMAIN
+// ============================================================
+
+enum ItemCategory {
+  COURSE_LICENCE
+  CONTENT_SUBSCRIPTION
+  CERTIFICATION_VOUCHER
+  TRAINING_MATERIAL
+  DEVICE
+}
+
+model Item {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  sku            String       @unique
+  name           String
+  category       ItemCategory
+  unit           String       @default("unit")
+  active         Boolean      @default(true)
+  deletedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  version        Int          @default(1)
+
+  // optional link when the item represents a specific course licence
+  courseId String? @unique
+  course   Course? @relation("CourseItem", fields: [courseId], references: [id])
+
+  lots                 Lot[]
+  stockBalances        StockBalance[]
+  stockMovements       StockMovement[]
+  demandHistory        DemandHistory[]
+  forecasts            Forecast[]
+  replenishmentParams  ReplenishmentParameter[]
+  purchaseRequestLines PurchaseRequestLine[]
+  purchaseOrderLines   PurchaseOrderLine[]
+  certifications       Certification[]
+
+  @@index([organizationId, category])
+}
+
+model Location {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  type           String? // warehouse, region, virtual (for digital licences)
+
+  bins           Bin[]
+  stockBalances  StockBalance[]
+  movementsFrom  StockMovement[] @relation("FromLocation")
+  movementsTo    StockMovement[] @relation("ToLocation")
+
+  @@index([organizationId])
+}
+
+model Bin {
+  id         String   @id @default(uuid())
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+  code       String
+
+  @@unique([locationId, code])
+}
+
+model Lot {
+  id           String    @id @default(uuid())
+  itemId       String
+  item         Item      @relation(fields: [itemId], references: [id])
+  lotNumber    String
+  manufacturedAt DateTime?
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  stockBalances StockBalance[]
+
+  @@unique([itemId, lotNumber])
+  @@index([expiresAt])
+}
+
+model StockBalance {
+  id             String   @id @default(uuid())
+  itemId         String
+  item           Item     @relation(fields: [itemId], references: [id])
+  locationId     String
+  location       Location @relation(fields: [locationId], references: [id])
+  lotId          String?
+  lot            Lot?     @relation(fields: [lotId], references: [id])
+  onHandQty      Decimal  @default(0) @db.Decimal(14, 2)
+  reservedQty    Decimal  @default(0) @db.Decimal(14, 2)
+  updatedAt      DateTime @updatedAt
+  version        Int      @default(1)
+
+  @@unique([itemId, locationId, lotId])
+  @@index([itemId])
+}
+
+enum MovementType {
+  RECEIPT
+  ISSUE
+  TRANSFER
+  ADJUSTMENT
+  RESERVATION
+  RELEASE
+}
+
+model StockMovement {
+  id             String       @id @default(uuid())
+  itemId         String
+  item           Item         @relation(fields: [itemId], references: [id])
+  type           MovementType
+  quantity       Decimal      @db.Decimal(14, 2)
+  fromLocationId String?
+  fromLocation   Location?    @relation("FromLocation", fields: [fromLocationId], references: [id])
+  toLocationId   String?
+  toLocation     Location?    @relation("ToLocation", fields: [toLocationId], references: [id])
+  reference      String? // e.g. PO number, transfer id
+  createdById    String?
+  createdAt      DateTime     @default(now())
+
+  @@index([itemId, createdAt])
+}
+
+model DemandHistory {
+  id        String   @id @default(uuid())
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id])
+  periodStart DateTime
+  periodEnd   DateTime
+  quantity  Decimal  @db.Decimal(14, 2)
+  driver    String? // e.g. course_completion, cert_renewal, new_hire_cohort
+
+  @@index([itemId, periodStart])
+}
+
+enum ForecastStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+  INSUFFICIENT_DATA
+  FAILED
+}
+
+model Forecast {
+  id             String         @id @default(uuid())
+  itemId         String
+  item           Item           @relation(fields: [itemId], references: [id])
+  modelVersionId String
+  modelVersion   ModelVersion   @relation(fields: [modelVersionId], references: [id])
+  horizonStart   DateTime
+  horizonEnd     DateTime
+  pointForecast  Decimal        @db.Decimal(14, 2)
+  lowerBound     Decimal?       @db.Decimal(14, 2)
+  upperBound     Decimal?       @db.Decimal(14, 2)
+  confidence     Float? // 0-1
+  assumptions    Json?
+  status         ForecastStatus @default(DRAFT)
+  inputSnapshot  Json? // source data snapshot for traceability
+  createdAt      DateTime       @default(now())
+
+  @@index([itemId, horizonStart])
+}
+
+model ReplenishmentParameter {
+  id             String   @id @default(uuid())
+  itemId         String
+  item           Item     @relation(fields: [itemId], references: [id])
+  safetyStock    Decimal  @db.Decimal(14, 2)
+  reorderPoint   Decimal  @db.Decimal(14, 2)
+  reorderQty     Decimal  @db.Decimal(14, 2)
+  serviceLevel   Float    @default(0.95)
+  leadTimeDays   Int
+  minOrderQty    Decimal? @db.Decimal(14, 2)
+  updatedAt      DateTime @updatedAt
+
+  @@unique([itemId])
+}
+
+// ============================================================
+// SUPPLIER & PROCUREMENT DOMAIN
+// ============================================================
+
+enum SupplierRisk {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Supplier {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  contactEmail   String?
+  leadTimeDays   Int?
+  riskScore      SupplierRisk @default(LOW)
+  scorecard      Json? // on-time %, quality %, cost variance etc.
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+
+  @@index([organizationId])
+}
+
+enum RequestStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  DEFERRED
+  CONVERTED
+}
+
+model PurchaseRequest {
+  id             String        @id @default(uuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  requestedById  String
+  requestedBy    User          @relation("RequestedBy", fields: [requestedById], references: [id])
+  status         RequestStatus @default(PENDING_REVIEW)
+  aiGenerated    Boolean       @default(false)
+  aiRunId        String?
+  aiRun          AIRun?        @relation(fields: [aiRunId], references: [id])
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  lines      PurchaseRequestLine[]
+  approvals  Approval[]
+  purchaseOrder PurchaseOrder?
+
+  @@index([organizationId, status])
+}
+
+model PurchaseRequestLine {
+  id                String          @id @default(uuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  itemId            String
+  item              Item            @relation(fields: [itemId], references: [id])
+  quantity          Decimal         @db.Decimal(14, 2)
+  recommendedSupplierId String?
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  RECEIVED
+  PARTIALLY_RECEIVED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id                String              @id @default(uuid())
+  purchaseRequestId String?             @unique
+  purchaseRequest   PurchaseRequest?    @relation(fields: [purchaseRequestId], references: [id])
+  supplierId        String
+  supplier          Supplier            @relation(fields: [supplierId], references: [id])
+  status            PurchaseOrderStatus @default(DRAFT)
+  totalCost         Decimal?            @db.Decimal(14, 2)
+  expectedAt        DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  lines    PurchaseOrderLine[]
+  receipts Receipt[]
+
+  @@index([supplierId, status])
+}
+
+model PurchaseOrderLine {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  itemId          String
+  item            Item          @relation(fields: [itemId], references: [id])
+  quantity        Decimal       @db.Decimal(14, 2)
+  unitCost        Decimal?      @db.Decimal(14, 2)
+}
+
+model Receipt {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  receivedAt      DateTime      @default(now())
+  quantity        Decimal       @db.Decimal(14, 2)
+}
+
+// ============================================================
+// AI DECISION-SUPPORT & GOVERNANCE
+// ============================================================
+
+model ModelVersion {
+  id          String     @id @default(uuid())
+  name        String // e.g. "demand-forecast"
+  version     String // e.g. "1.0.0"
+  description String?
+  createdAt   DateTime   @default(now())
+
+  forecasts Forecast[]
+  aiRuns    AIRun[]
+
+  @@unique([name, version])
+}
+
+enum AIRunKind {
+  DEMAND_FORECAST
+  SAFETY_STOCK
+  SUPPLIER_RISK
+  SUBSTITUTE_RECOMMENDATION
+  PO_ANOMALY
+  ALLOCATION
+}
+
+model AIRun {
+  id             String       @id @default(uuid())
+  kind           AIRunKind
+  modelVersionId String
+  modelVersion   ModelVersion @relation(fields: [modelVersionId], references: [id])
+  inputSnapshot  Json
+  output         Json
+  confidence     Float?
+  explanation    String?
+  createdAt      DateTime     @default(now())
+
+  purchaseRequests PurchaseRequest[]
+  approvals        Approval[]
+}
+
+enum ApprovalOutcome {
+  PENDING
+  APPROVED
+  REJECTED
+  DEFERRED
+  OVERRIDDEN
+  ESCALATED
+}
+
+model Approval {
+  id                String          @id @default(uuid())
+  purchaseRequestId String?
+  purchaseRequest   PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
+  aiRunId           String?
+  aiRun             AIRun?          @relation(fields: [aiRunId], references: [id])
+  actorId           String
+  actor             User            @relation("ApprovalActor", fields: [actorId], references: [id])
+  outcome           ApprovalOutcome @default(PENDING)
+  reason            String?
+  previousValue     Json?
+  newValue          Json?
+  createdAt         DateTime        @default(now())
+
+  @@index([actorId])
+}
+
+// ============================================================
+// PLATFORM: NOTIFICATIONS, COMMENTS, ATTACHMENTS, AUDIT, CONFIG
+// ============================================================
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model Notification {
+  id             String               @id @default(uuid())
+  organizationId String
+  organization   Organization         @relation(fields: [organizationId], references: [id])
+  userId         String
+  user           User                 @relation(fields: [userId], references: [id])
+  title          String
+  body           String?
+  severity       NotificationSeverity @default(INFO)
+  read           Boolean              @default(false)
+  entityType     String? // e.g. "PurchaseRequest"
+  entityId       String?
+  createdAt      DateTime             @default(now())
+
+  @@index([userId, read])
+}
+
+model Comment {
+  id         String   @id @default(uuid())
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id])
+  entityType String
+  entityId   String
+  body       String
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model Attachment {
+  id             String   @id @default(uuid())
+  ownerId        String
+  owner          User     @relation(fields: [ownerId], references: [id])
+  entityType     String
+  entityId       String
+  storageRef     String // object storage key/URL
+  checksum       String
+  mimeType       String
+  sizeBytes      Int
+  accessPolicy   String   @default("private")
+  createdAt      DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model Configuration {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  key            String
+  value          Json
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, key])
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  actorId        String?
+  actor          User?        @relation(fields: [actorId], references: [id])
+  action         String // LOGIN, CREATE, UPDATE, DELETE, EXPORT, AI_RUN, APPROVE, REJECT, OVERRIDE, CONFIG_CHANGE
+  entityType     String?
+  entityId       String?
+  outcome        String? // SUCCESS, FAILURE
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  // append-only: no updatedAt, no deletes performed at the application layer
+
+  @@index([organizationId, createdAt])
+  @@index([actorId])
+  @@index([action])
+}

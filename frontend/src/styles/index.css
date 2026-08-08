@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  h1, h2, h3 {
+    @apply font-display;
+  }
+  /* Visible keyboard focus everywhere - accessibility floor */
+  :focus-visible {
+    outline: 2px solid theme('colors.primary.DEFAULT');
+    outline-offset: 2px;
+  }
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Signature element: a status rail - a thin left-edge color bar used
+     consistently across cards, table rows, and notifications to give
+     planners an at-a-glance read on state without extra chrome. */
+  .status-rail {
+    @apply relative pl-4;
+  }
+  .status-rail::before {
+    content: '';
+    @apply absolute left-0 top-0 bottom-0 w-1 rounded-full;
+    background-color: var(--rail-color, theme('colors.border'));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
