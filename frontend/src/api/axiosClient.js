@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const axiosClient = axios.create({ baseURL: '/api/v1' });
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
+
+const axiosClient = axios.create({ baseURL: API_BASE_URL });
 
 axiosClient.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('accessToken') || localStorage.getItem('accessToken');
@@ -23,7 +25,7 @@ axiosClient.interceptors.response.use(
         return Promise.reject(error);
       }
       try {
-        refreshPromise = refreshPromise || axios.post('/api/v1/auth/refresh', { refreshToken });
+        refreshPromise = refreshPromise || axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
         const { data } = await refreshPromise;
         refreshPromise = null;
         const store = localStorage.getItem('refreshToken') ? localStorage : sessionStorage;
