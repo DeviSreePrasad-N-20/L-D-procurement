@@ -62,8 +62,17 @@ export default function Approvals() {
                   </div>
 
                   <div className="flex flex-col text-right">
-                    <span className="font-semibold text-ink">Action Required By</span>
-                    <span className="text-xs text-muted">Procurement / Finance</span>
+                    {row.outcome === 'PENDING' ? (
+                      <>
+                        <span className="font-semibold text-ink">Action Required By</span>
+                        <span className="text-xs text-muted">Procurement / Finance</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-ink">{row.actor?.name || 'Unknown User'}</span>
+                        <span className="text-xs text-muted">{row.actor?.role?.name || 'Reviewer'}</span>
+                      </>
+                    )}
                   </div>
                 </div>
 

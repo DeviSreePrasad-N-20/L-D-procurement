@@ -73,7 +73,7 @@ export async function listApprovals(req, res) {
   const approvals = await prisma.approval.findMany({
     where: { purchaseRequest: { organizationId: req.user.organizationId } },
     include: {
-      actor: { select: { name: true, email: true } },
+      actor: { select: { name: true, email: true, role: { select: { name: true } } } },
       purchaseRequest: { 
         include: { 
           lines: { include: { item: { select: { name: true, sku: true } } } }, 
